@@ -24,11 +24,11 @@ trunk_height = 200
 trunk_segments = 36
 
 # Branches (8 total, in 3 tiers)
-branch_length = 45
-branch_radius = 5
-branch_tip_radius = 3.5
-branch_tip_bulb = 5.0  # knob at end to hold jewelry
-branch_upward_angle = 45  # degrees from horizontal (= 45° from vertical, FDM safe)
+branch_length = 80
+branch_radius = 8
+branch_tip_radius = 5
+branch_tip_bulb = 7.0  # knob at end to hold jewelry
+branch_upward_angle = 35  # degrees from horizontal (FDM safe, well under 45° overhang)
 
 # Tier heights (from base of trunk)
 tier_1_height = 80   # 2 branches
