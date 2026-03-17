@@ -44,7 +44,7 @@ def export_step(result, output_path: str):
     print(f"STEP exported: {output_path}")
 
 
-def export_svg_view(result, output_path: str, direction: tuple, label: str):
+def export_svg_view(result, output_path: str, direction: tuple, label: str, width=800, height=800):
     """Export a single SVG view of the CadQuery result."""
     import cadquery as cq
     cq.exporters.export(
@@ -59,25 +59,52 @@ def export_svg_view(result, output_path: str, direction: tuple, label: str):
             "showHidden": False,
             "strokeColor": (30, 30, 30),
             "hiddenColor": (200, 200, 200),
+            "width": width,
+            "height": height,
         },
     )
 
 
+def svg_to_png(svg_path: str, png_path: str, width=800, height=800):
+    """Convert SVG to PNG using cairosvg if available."""
+    try:
+        import cairosvg
+        cairosvg.svg2png(
+            url=svg_path,
+            write_to=png_path,
+            output_width=width,
+            output_height=height,
+        )
+        return True
+    except ImportError:
+        return False
+
+
 def generate_preview(result, base_path: str):
-    """Generate multi-view SVG previews (front, top, isometric)."""
+    """Generate multi-view SVG previews and PNG conversions."""
+    # CadQuery SVG exporter: projectionDir is the camera look-at direction.
+    # The exporter flips Z in the 2D projection, so use negative Z
+    # components to get an upright view.
     views = {
-        "front": (0, -1, 0),
+        "front": (0, -1, 0.01),
         "top": (0, 0, -1),
-        "right": (-1, 0, 0),
-        "iso": (-1, -1, -0.7),
+        "right": (-1, 0, 0.01),
+        "iso": (-1, -1.2, 0.5),
     }
 
     svg_paths = []
+    png_paths = []
     for name, direction in views.items():
         svg_path = f"{base_path}_{name}.svg"
         export_svg_view(result, svg_path, direction, name)
         svg_paths.append(svg_path)
         print(f"SVG preview ({name}): {svg_path}")
+
+        # Auto-convert to PNG if cairosvg is available
+        png_path = f"{base_path}_{name}.png"
+        if svg_to_png(svg_path, png_path):
+            png_paths.append(png_path)
+            print(f"PNG preview ({name}): {png_path}")
 
     return svg_paths
 
