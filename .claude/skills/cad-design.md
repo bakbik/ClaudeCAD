@@ -12,20 +12,34 @@ Ask the user about:
 - Any mating parts, tolerances, or mounting requirements
 
 ### Phase 2: Base Shape
-Generate CadQuery code for the base geometry. Run `python3 scripts/cad_render.py <script_path>` to produce a multi-view preview PNG and STL. Show the preview to the user and ask for feedback before proceeding.
+Generate CadQuery code for the base geometry. Run `python3 scripts/cad_render.py <script_path>` to produce multi-view SVG previews and an STL. Then run the **self-review checklist** (see below). Show the preview to the user and ask for feedback before proceeding.
 
 ### Phase 3: Features
-Add holes, slots, fillets, chamfers, text, snap-fits, etc. Render again and get feedback.
+Add holes, slots, fillets, chamfers, text, snap-fits, etc. Render again, self-review, and get feedback.
 
-### Phase 4: Final Cleanup
-Apply print-optimization rules (see below), do a final render, and export the STL.
+### Phase 4: Final Cleanup & Validation
+Apply print-optimization rules (see below), do a final render, run `python3 scripts/validate_mesh.py designs/<name>.stl` to check mesh integrity, and export the final STL.
+
+## Self-Review Checklist
+
+After EVERY render, review the SVG previews and check the following BEFORE showing to the user. If any check fails, fix the script and re-render automatically:
+
+1. **Geometry sanity**: Does the shape match what was requested? Are there unexpected voids or missing features?
+2. **Boolean failures**: Did all `.cut()` and `.union()` operations produce visible changes? (Silent boolean failures are common — e.g., cutting a hole that doesn't intersect the body)
+3. **Wall thickness**: Are all walls ≥ 1.2mm? Shells should not produce paper-thin sections.
+4. **Orientation**: Is there a flat bottom face for bed adhesion?
+5. **Overhangs**: Are there unsupported overhangs > 45° from vertical?
+6. **Bottom edges**: Are bottom edges chamfered (not filleted)?
+7. **Bounding box**: Do the dimensions in the render output match the intended dimensions?
+8. **Mesh validity**: Run `python3 scripts/validate_mesh.py designs/<name>.stl` — it must report watertight + manifold.
 
 ## CadQuery Code Guidelines
 
 Always write complete, self-contained Python scripts that:
 1. Import cadquery: `import cadquery as cq`
-2. Store the final result in a variable called `result`
-3. Use millimeters as the unit
+2. Define all dimensions as named variables at the top (parameters section)
+3. Store the final result in a variable called `result`
+4. Use millimeters as the unit
 
 Example pattern:
 ```python
@@ -98,9 +112,14 @@ python3 scripts/cad_render.py designs/<name>.py
 
 This produces:
 - `designs/<name>.stl` — the printable STL file
-- `designs/<name>_preview.png` — multi-view preview image (front, top, iso)
+- `designs/<name>_{front,top,right,iso}.svg` — multi-view SVG previews
 
-Always show the preview image to the user after each design iteration.
+To validate mesh integrity after export:
+```bash
+python3 scripts/validate_mesh.py designs/<name>.stl
+```
+
+Always show the SVG preview files to the user after each design iteration.
 
 ## Iterative Refinement
 
