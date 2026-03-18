@@ -1,7 +1,9 @@
 """
-Jewelry Tree Stand
-- Large size: ~160mm tray, ~230mm tall
-- 8 branches at varying heights for necklaces/earrings
+Jewelry Tree Stand — Realistic Tree Shape
+- Organic silhouette: longer lower branches, shorter upper ones
+- Curved branches with upward sweep
+- Multi-section tapered trunk
+- 12 branches across 4 tiers for necklaces/earrings
 - Wide tray base for bracelets and rings
 - FDM-optimized for PLA on Bambu P1S (256x256x256mm)
 """
@@ -17,29 +19,26 @@ tray_lip_height = 12
 tray_inner_depth = 6
 tray_chamfer = 1.0
 
-# Trunk
-trunk_base_radius = 16
-trunk_top_radius = 10
-trunk_height = 200
-trunk_segments = 36
+# Trunk — organic multi-section taper
+trunk_height = 190
+trunk_radii = [18, 15, 12, 10, 8]  # radii at 5 evenly-spaced sections
+trunk_section_height = trunk_height / (len(trunk_radii) - 1)
 
-# Branches (8 total, in 3 tiers)
-branch_length = 80
-branch_radius = 8
-branch_tip_radius = 5
-branch_tip_bulb = 7.0  # knob at end to hold jewelry
-branch_upward_angle = 35  # degrees from horizontal (FDM safe, well under 45° overhang)
-
-# Tier heights (from base of trunk)
-tier_1_height = 80   # 2 branches
-tier_2_height = 130  # 3 branches
-tier_3_height = 175  # 3 branches
+# Branch tiers — each tier: (height, count, azimuth_offset, length, base_radius, tip_radius, bulb_radius, angle)
+# Lower tiers: longer, thicker, more horizontal (tree-like silhouette)
+# Upper tiers: shorter, thinner, more upward
+tiers = [
+    # height, count, azimuth_offset, length, base_r, tip_r, bulb_r, upward_angle
+    (55,  3,   0, 95, 9, 5.5, 7.5, 25),   # Tier 1: long, thick, spread wide
+    (95,  3,  40, 80, 8, 5.0, 7.0, 30),   # Tier 2: medium-long
+    (135, 3,  20, 65, 7, 4.5, 6.5, 35),   # Tier 3: medium
+    (170, 3,  60, 50, 6, 4.0, 6.0, 42),   # Tier 4: short, thin, angled up
+]
 
 # Tree top
-top_bulb_radius = 12
+top_bulb_radius = 10
 
 # === Base Tray ===
-# Outer tray shell
 tray = (
     cq.Workplane("XY")
     .circle(tray_diameter / 2)
@@ -48,7 +47,6 @@ tray = (
     .chamfer(tray_chamfer)
 )
 
-# Hollow out the tray interior (ring/bracelet dish)
 tray_inner = (
     cq.Workplane("XY")
     .workplane(offset=tray_height - tray_inner_depth)
@@ -56,7 +54,6 @@ tray_inner = (
     .extrude(tray_inner_depth + 1)
 )
 
-# Tray lip
 tray_lip = (
     cq.Workplane("XY")
     .circle(tray_diameter / 2)
@@ -68,14 +65,13 @@ tray_lip = (
 
 tray_result = tray.union(tray_lip).cut(tray_inner)
 
-# Ring holder bumps inside the tray (short cylinders to drape rings over)
+# Ring holder bumps
 ring_holder_positions = [
     (tray_diameter / 2 - 25, 0),
     (-(tray_diameter / 2 - 25), 0),
     (0, tray_diameter / 2 - 25),
     (0, -(tray_diameter / 2 - 25)),
 ]
-
 for px, py in ring_holder_positions:
     bump = (
         cq.Workplane("XY")
@@ -88,64 +84,61 @@ for px, py in ring_holder_positions:
     )
     tray_result = tray_result.union(bump)
 
-# === Trunk ===
-# Tapered trunk using a loft between two circles
-trunk = (
-    cq.Workplane("XY")
-    .workplane(offset=tray_height)
-    .circle(trunk_base_radius)
-    .workplane(offset=trunk_height)
-    .circle(trunk_top_radius)
-    .loft()
-)
+# === Organic Trunk ===
+# Multi-section loft with varying radii for natural taper
+trunk_wp = cq.Workplane("XY").workplane(offset=tray_height)
+trunk_wp = trunk_wp.circle(trunk_radii[0])
+for i in range(1, len(trunk_radii)):
+    trunk_wp = trunk_wp.workplane(offset=trunk_section_height).circle(trunk_radii[i])
+trunk = trunk_wp.loft()
 
-# === Branches ===
-def make_branch(height, angle_deg, azimuth_deg, length, radius):
-    """Create a single branch angled upward from the trunk."""
-    # Branch as a tapered cylinder pointing in +X, then rotated
+# === Curved Branches ===
+def make_curved_branch(height, azimuth_deg, length, base_r, tip_r, bulb_r, upward_angle):
+    """Create a branch with a gentle upward curve using 3-section loft."""
+    # Build the branch along +Z, then rotate into position
+    # Use 3 cross-sections to create a subtle curve
+    seg = length / 3
+    mid_r = (base_r + tip_r) / 2
+
     branch = (
         cq.Workplane("XY")
-        .circle(radius)
-        .workplane(offset=length)
-        .circle(branch_tip_radius)
+        .circle(base_r)
+        .workplane(offset=seg)
+        .circle(mid_r)
+        .workplane(offset=seg)
+        .circle(tip_r * 1.1)
+        .workplane(offset=seg)
+        .circle(tip_r)
         .loft()
     )
-    # Bulb at tip to prevent jewelry from sliding off
+
+    # Bulb at tip
     bulb = (
         cq.Workplane("XY")
         .workplane(offset=length)
-        .sphere(branch_tip_bulb)
+        .sphere(bulb_r)
     )
     branch = branch.union(bulb)
 
-    # Rotate to point outward and upward
+    # Rotate: tilt from vertical to the desired upward angle from horizontal
+    # (90 - upward_angle) gives the tilt from vertical
     branch = (
         branch
-        .rotateAboutCenter((0, 1, 0), -(90 - branch_upward_angle))
+        .rotateAboutCenter((0, 1, 0), -(90 - upward_angle))
         .rotateAboutCenter((0, 0, 1), azimuth_deg)
         .translate((0, 0, tray_height + height))
     )
     return branch
 
-# Define branch positions: (height, azimuth_angle)
-branches_config = [
-    # Tier 1: 2 branches, opposite sides
-    (tier_1_height, 0),
-    (tier_1_height, 180),
-    # Tier 2: 3 branches, evenly spaced offset from tier 1
-    (tier_2_height, 60),
-    (tier_2_height, 180),
-    (tier_2_height, 300),
-    # Tier 3: 3 branches, offset from tier 2
-    (tier_3_height, 30),
-    (tier_3_height, 150),
-    (tier_3_height, 270),
-]
 
-branches = cq.Workplane("XY").box(0.01, 0.01, 0.01)  # seed object for union
-for height, azimuth in branches_config:
-    b = make_branch(height, branch_upward_angle, azimuth, branch_length, branch_radius)
-    branches = branches.union(b)
+# Build all branches
+branches = cq.Workplane("XY").box(0.01, 0.01, 0.01)  # seed object
+
+for tier_h, count, az_offset, length, base_r, tip_r, bulb_r, angle in tiers:
+    for i in range(count):
+        azimuth = az_offset + i * (360 / count)
+        b = make_curved_branch(tier_h, azimuth, length, base_r, tip_r, bulb_r, angle)
+        branches = branches.union(b)
 
 # === Tree Top ===
 top = (
