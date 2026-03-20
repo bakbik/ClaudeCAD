@@ -1,212 +1,231 @@
 #!/usr/bin/env python3
 """
-mesh_generate.py — Generate a 3D mesh via Meshy AI API (text or image input).
+mesh_generate.py — Generate a 3D mesh using free HuggingFace Spaces.
 
-Requires MESHY_API_KEY environment variable (Pro tier or above).
-For development/testing, a dummy key is available:
-    export MESHY_API_KEY=msy_dummy_api_key_for_test_mode_12345678
+No API key or account required. Uses the gradio_client library to call
+publicly hosted inference spaces:
 
-Meshy API docs: https://docs.meshy.ai/en/api/text-to-3d
+  - TRELLIS  (Microsoft) — image-to-3D, high quality GLB output
+  - Hunyuan3D-2 (Tencent) — text-to-3D and image-to-3D
+
+Backend is auto-selected based on input:
+  - Image provided  → TRELLIS (best quality)
+  - Text only       → Hunyuan3D-2
 
 Usage:
-    python mesh_generate.py --prompt "a minimal phone stand, geometric, 3D printable"
-    python mesh_generate.py --prompt "a decorative tree" --image ref.png --output designs/tree.glb
-    python mesh_generate.py --prompt "..." --refine --output designs/out.glb
+    python mesh_generate.py --prompt "a decorative oak tree, low-poly"
+    python mesh_generate.py --prompt "phone stand" --image reference.png
+    python mesh_generate.py --prompt "..." --backend hunyuan
+    python mesh_generate.py --prompt "..." --backend trellis --image ref.png
+
+Output: GLB file (can be converted to STL via trimesh)
 """
 
 import sys
 import os
-import time
-import json
 import argparse
-
-import requests
-
-MESHY_BASE_URL = "https://api.meshy.ai/openapi/v2"
-TEST_API_KEY = "msy_dummy_api_key_for_test_mode_12345678"
-POLL_INTERVAL_S = 5
-TIMEOUT_S = 300
+import json
+import tempfile
+import shutil
 
 
-def get_api_key() -> str:
-    key = os.environ.get("MESHY_API_KEY", TEST_API_KEY)
-    if key == TEST_API_KEY:
-        print(
-            "ℹ️  Using Meshy test key — returns sample data, no credits consumed.\n"
-            "   Set MESHY_API_KEY env var with a real key for actual generation.",
-            file=sys.stderr,
-        )
-    return key
+# --- HuggingFace Space IDs ---
+TRELLIS_SPACE   = "JeffreyXiang/TRELLIS"
+HUNYUAN_SPACE   = "tencent/Hunyuan3D-2"
 
 
-def auth_headers(api_key: str) -> dict:
-    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+def _gradio_client(space_id: str):
+    """Return a Gradio client for the given HF Space ID."""
+    try:
+        from gradio_client import Client
+    except ImportError:
+        print("gradio_client not installed. Run: pip install gradio_client", file=sys.stderr)
+        sys.exit(1)
+    print(f"Connecting to HuggingFace Space: {space_id} ...")
+    return Client(space_id)
 
 
-def create_preview_task(prompt: str, negative_prompt: str, api_key: str,
-                        image_path: str | None = None) -> str:
-    """Submit a text-to-3D preview task. Returns task_id."""
+# ---------------------------------------------------------------------------
+# TRELLIS backend — image-to-3D
+# ---------------------------------------------------------------------------
+
+def generate_trellis(image_path: str, output_path: str,
+                     simplify: float = 0.95, texture_size: int = 1024) -> str:
+    """
+    Call the TRELLIS HuggingFace Space to convert an image to a 3D GLB.
+    TRELLIS is image-to-3D only; a prompt is not used.
+
+    Returns path to the downloaded GLB file.
+    """
+    client = _gradio_client(TRELLIS_SPACE)
+
+    print("Preprocessing image...")
+    # Step 1: preprocess the image (background removal + centering)
+    preprocessed = client.predict(
+        image=image_path,
+        api_name="/preprocess_image",
+    )
+
+    print("Generating 3D model with TRELLIS (this may take 1–3 minutes)...")
+    # Step 2: image → 3D (returns a tuple; first element is the GLB path on the Space)
+    result = client.predict(
+        image=preprocessed,
+        multiimages=[],
+        seed=42,
+        randomize_seed=True,
+        ss_guidance_strength=7.5,
+        ss_sampling_steps=12,
+        slat_guidance_strength=3.0,
+        slat_sampling_steps=12,
+        multiimage_algo="stochastic",
+        api_name="/image_to_3d",
+    )
+
+    print("Extracting GLB...")
+    # Step 3: extract GLB from the result
+    glb_result = client.predict(
+        mesh_simplify=simplify,
+        texture_size=texture_size,
+        api_name="/extract_glb",
+    )
+
+    # glb_result is typically a file path string or a dict with a 'value' key
+    glb_src = glb_result if isinstance(glb_result, str) else glb_result.get("value", glb_result)
+
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+    shutil.copy(glb_src, output_path)
+    size_kb = os.path.getsize(output_path) / 1024
+    print(f"✅ TRELLIS GLB saved: {output_path} ({size_kb:.1f} KB)")
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# Hunyuan3D-2 backend — text-to-3D and image-to-3D
+# ---------------------------------------------------------------------------
+
+def generate_hunyuan(prompt: str, output_path: str,
+                     image_path: str | None = None,
+                     steps: int = 20, guidance: float = 7.5) -> str:
+    """
+    Call the Hunyuan3D-2 HuggingFace Space to generate a 3D model.
+    Supports both text-to-3D (prompt only) and image+text-to-3D.
+
+    Returns path to the downloaded GLB file.
+    """
+    client = _gradio_client(HUNYUAN_SPACE)
+
+    print(f"Generating 3D model with Hunyuan3D-2 ({'image+text' if image_path else 'text'}-to-3D)...")
+    print(f"  Prompt: {prompt}")
+
     if image_path:
-        # Image-to-3D: use image-to-3d endpoint
-        return create_image_to_3d_task(image_path, prompt, api_key)
-
-    payload = {
-        "mode": "preview",
-        "prompt": prompt,
-        "negative_prompt": negative_prompt or "low quality, blurry, deformed",
-        "should_remesh": True,
-    }
-    resp = requests.post(
-        f"{MESHY_BASE_URL}/text-to-3d",
-        headers=auth_headers(api_key),
-        json=payload,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    task_id = resp.json()["result"]
-    print(f"Preview task created: {task_id}")
-    return task_id
-
-
-def create_image_to_3d_task(image_path: str, prompt: str, api_key: str) -> str:
-    """Submit an image-to-3D task. Returns task_id."""
-    import base64
-    with open(image_path, "rb") as f:
-        img_b64 = base64.b64encode(f.read()).decode()
-
-    ext = os.path.splitext(image_path)[1].lower().lstrip(".")
-    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-            "webp": "image/webp"}.get(ext, "image/png")
-    image_data_url = f"data:{mime};base64,{img_b64}"
-
-    payload = {
-        "image_url": image_data_url,
-        "prompt": prompt or "",
-        "should_remesh": True,
-    }
-    resp = requests.post(
-        f"{MESHY_BASE_URL}/image-to-3d",
-        headers=auth_headers(api_key),
-        json=payload,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    task_id = resp.json()["result"]
-    print(f"Image-to-3D task created: {task_id}")
-    return task_id
-
-
-def create_refine_task(preview_task_id: str, api_key: str) -> str:
-    """Submit a refine task from a completed preview. Returns task_id."""
-    payload = {"mode": "refine", "preview_task_id": preview_task_id}
-    resp = requests.post(
-        f"{MESHY_BASE_URL}/text-to-3d",
-        headers=auth_headers(api_key),
-        json=payload,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    task_id = resp.json()["result"]
-    print(f"Refine task created: {task_id}")
-    return task_id
-
-
-def poll_task(task_id: str, api_key: str, endpoint: str = "text-to-3d") -> dict:
-    """Poll until task SUCCEEDED or FAILED. Returns final task dict."""
-    deadline = time.time() + TIMEOUT_S
-    while time.time() < deadline:
-        resp = requests.get(
-            f"{MESHY_BASE_URL}/{endpoint}/{task_id}",
-            headers=auth_headers(api_key),
-            timeout=30,
+        # Image + text conditioned generation
+        result = client.predict(
+            image=image_path,
+            text=prompt,
+            steps=steps,
+            guidance_scale=guidance,
+            seed=42,
+            api_name="/generation_all",
         )
-        resp.raise_for_status()
-        task = resp.json()
-        status = task.get("status", "UNKNOWN")
-        progress = task.get("progress", 0)
-        print(f"  Status: {status} ({progress}%)", end="\r", flush=True)
+    else:
+        # Text-only generation
+        result = client.predict(
+            text=prompt,
+            steps=steps,
+            guidance_scale=guidance,
+            seed=42,
+            api_name="/text_to_3d",
+        )
 
-        if status == "SUCCEEDED":
-            print(f"\n✅ Task complete: {task_id}")
-            return task
-        if status == "FAILED":
-            print(f"\n❌ Task failed: {task.get('task_error', {}).get('message', 'unknown error')}")
-            sys.exit(1)
+    # Result is typically a file path to the GLB, or a dict
+    glb_src = result if isinstance(result, str) else (
+        result[0] if isinstance(result, (list, tuple)) else result.get("value", str(result))
+    )
 
-        time.sleep(POLL_INTERVAL_S)
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+    shutil.copy(glb_src, output_path)
+    size_kb = os.path.getsize(output_path) / 1024
+    print(f"✅ Hunyuan3D-2 GLB saved: {output_path} ({size_kb:.1f} KB)")
+    return output_path
 
-    print(f"\n⏰ Timeout after {TIMEOUT_S}s waiting for task {task_id}")
-    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# STL conversion helper
+# ---------------------------------------------------------------------------
+
+def glb_to_stl(glb_path: str, stl_path: str) -> str:
+    """Convert a GLB file to STL using trimesh."""
+    try:
+        import trimesh
+        mesh = trimesh.load(glb_path)
+        if isinstance(mesh, trimesh.Scene):
+            mesh = trimesh.util.concatenate(list(mesh.geometry.values()))
+        mesh.export(stl_path)
+        size_kb = os.path.getsize(stl_path) / 1024
+        print(f"✅ STL saved: {stl_path} ({size_kb:.1f} KB)")
+        return stl_path
+    except Exception as e:
+        print(f"⚠️  STL conversion failed: {e}", file=sys.stderr)
+        return None
 
 
-def download_model(task: dict, output_path: str, prefer_format: str = "glb"):
-    """Download the generated model file."""
-    model_urls = task.get("model_urls", {})
-
-    # Try preferred format, then fallbacks
-    for fmt in [prefer_format, "glb", "obj", "fbx"]:
-        url = model_urls.get(fmt)
-        if url:
-            print(f"Downloading {fmt.upper()} from Meshy...")
-            resp = requests.get(url, timeout=120, stream=True)
-            resp.raise_for_status()
-            # Adjust output extension to match format
-            base, _ = os.path.splitext(output_path)
-            actual_path = f"{base}.{fmt}"
-            os.makedirs(os.path.dirname(actual_path) if os.path.dirname(actual_path) else ".", exist_ok=True)
-            with open(actual_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            size_kb = os.path.getsize(actual_path) / 1024
-            print(f"✅ Saved: {actual_path} ({size_kb:.1f} KB)")
-            return actual_path
-
-    print("❌ No downloadable model URL found in task response.", file=sys.stderr)
-    print(f"   Available URLs: {list(model_urls.keys())}", file=sys.stderr)
-    sys.exit(1)
-
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate 3D mesh via Meshy AI API")
-    parser.add_argument("--prompt", required=True, help="Text description of the 3D model")
-    parser.add_argument("--negative-prompt", default="",
-                        help="Describe what to avoid")
+    parser = argparse.ArgumentParser(
+        description="Generate a 3D mesh using free HuggingFace Spaces (no API key needed)"
+    )
+    parser.add_argument("--prompt", required=True,
+                        help="Text description of the 3D model")
     parser.add_argument("--image", default=None,
-                        help="Path to reference image (triggers image-to-3D)")
+                        help="Reference image path (for image-to-3D; auto-selects TRELLIS)")
     parser.add_argument("--output", default="designs/model.glb",
-                        help="Output file path (extension adjusted to actual format)")
-    parser.add_argument("--refine", action="store_true",
-                        help="Run refine stage after preview (adds texture detail)")
-    parser.add_argument("--format", choices=["glb", "obj", "fbx"], default="glb",
-                        help="Preferred output format")
+                        help="Output GLB file path")
+    parser.add_argument("--backend", choices=["auto", "trellis", "hunyuan"], default="auto",
+                        help="Generation backend (default: auto — TRELLIS if image, else Hunyuan3D-2)")
+    parser.add_argument("--also-stl", action="store_true",
+                        help="Also convert output to STL via trimesh")
+    parser.add_argument("--simplify", type=float, default=0.95,
+                        help="TRELLIS mesh simplification ratio (0–1, default 0.95)")
+    parser.add_argument("--steps", type=int, default=20,
+                        help="Hunyuan3D-2 diffusion steps (default 20)")
     args = parser.parse_args()
 
-    api_key = get_api_key()
+    # Auto-select backend
+    backend = args.backend
+    if backend == "auto":
+        backend = "trellis" if args.image else "hunyuan"
 
-    # Stage 1: Preview
-    task_id = create_preview_task(
-        prompt=args.prompt,
-        negative_prompt=args.negative_prompt,
-        api_key=api_key,
-        image_path=args.image,
-    )
-    endpoint = "image-to-3d" if args.image else "text-to-3d"
-    task = poll_task(task_id, api_key, endpoint=endpoint)
+    print(f"Backend: {backend.upper()}")
 
-    # Stage 2: Refine (optional)
-    if args.refine and not args.image:
-        print("Running refine stage...")
-        refine_id = create_refine_task(task_id, api_key)
-        task = poll_task(refine_id, api_key, endpoint="text-to-3d")
+    glb_path = args.output
+    if not glb_path.endswith(".glb"):
+        glb_path = os.path.splitext(glb_path)[0] + ".glb"
 
-    # Download
-    download_model(task, args.output, prefer_format=args.format)
+    if backend == "trellis":
+        if not args.image:
+            print("⚠️  TRELLIS is image-to-3D only. Please provide --image <path>.", file=sys.stderr)
+            print("   Falling back to Hunyuan3D-2 for text-to-3D...", file=sys.stderr)
+            backend = "hunyuan"
+
+    if backend == "trellis":
+        generate_trellis(args.image, glb_path, simplify=args.simplify)
+    else:
+        generate_hunyuan(args.prompt, glb_path, image_path=args.image, steps=args.steps)
+
+    stl_path = None
+    if args.also_stl:
+        stl_path = os.path.splitext(glb_path)[0] + ".stl"
+        stl_path = glb_to_stl(glb_path, stl_path)
 
     print(json.dumps({
-        "task_id": task_id,
-        "status": "SUCCEEDED",
-        "output": args.output,
-        "model_urls": task.get("model_urls", {}),
+        "backend": backend,
+        "glb": glb_path,
+        "stl": stl_path,
+        "prompt": args.prompt,
+        "image": args.image,
     }))
 
 

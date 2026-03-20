@@ -17,17 +17,7 @@ pip install -r requirements.txt
 
 ### Environment Variables
 
-| Variable | Purpose | Required |
-|---|---|---|
-| `MESHY_API_KEY` | Meshy AI API key for mesh generation | For organic/freeform shapes |
-
-```bash
-export MESHY_API_KEY=your_key_here
-```
-
-**Getting a Meshy API key**: Sign up at [meshy.ai](https://www.meshy.ai), go to API → Generate Key. Pro tier required (starts at ~$20/mo). For development/testing, use the free test key: `msy_dummy_api_key_for_test_mode_12345678` (returns sample outputs, no credits used).
-
-**Free alternative for mesh generation**: [TRELLIS 3D](https://trellis3d.co) — upload an image or enter a text prompt manually, download the result as GLB/STL, then place it in `designs/`.
+No API keys or accounts are required. Mesh generation uses free public HuggingFace Spaces.
 
 ## How It Works
 
@@ -51,7 +41,7 @@ The agent runs through 5 phases:
 | `scripts/analyze_model.py` | Parse 3D files → JSON stats | `python scripts/analyze_model.py model.stl` |
 | `scripts/generate_draft.py` | JSON spec → dimensioned PNG | `python scripts/generate_draft.py '<json>' --output out.png` |
 | `scripts/cad_render.py` | CadQuery script → STL + preview | `python scripts/cad_render.py design.py --format both` |
-| `scripts/mesh_generate.py` | Meshy AI API → GLB/STL | `python scripts/mesh_generate.py --prompt "..." --output out.glb` |
+| `scripts/mesh_generate.py` | Free HF Spaces (TRELLIS / Hunyuan3D-2) → GLB | `python scripts/mesh_generate.py --prompt "..." --output out.glb` |
 
 ## Design Conventions
 

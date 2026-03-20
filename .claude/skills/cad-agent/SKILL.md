@@ -204,7 +204,7 @@ Decide between **CadQuery parametric CAD** and **Meshy AI mesh generation** base
 ```
 or
 ```
-🌐 Approach: Meshy AI mesh generation
+🌐 Approach: AI mesh generation (HuggingFace Spaces — free, no API key)
    Reason: <1-sentence explanation>
 ```
 
@@ -285,55 +285,66 @@ Offer: "Would you like to adjust anything, or is this ready for slicing?"
 
 ---
 
-### Mesh Path (Meshy AI)
+### Mesh Path (HuggingFace Spaces — free, no API key)
 
-**Step 1: Craft the prompt**
+Two free backends are available, auto-selected based on input:
 
-Write an optimized Meshy prompt from requirements. Good Meshy prompts:
-- Describe the overall shape and key features
-- Mention style (realistic, stylized, low-poly, etc.)
-- Note "3D printable" if applicable
-- Include material hints (clay, metal, wood, plastic)
-- Keep it under 200 characters
+| Backend | Best for | Requires |
+|---|---|---|
+| **TRELLIS** (Microsoft) | Image-to-3D, highest quality | `--image` path |
+| **Hunyuan3D-2** (Tencent) | Text-to-3D and image+text-to-3D | Nothing |
 
-Example: `"A decorative oak tree, stylized low-poly style, thick trunk, layered canopy, flat base, 3D printable, no overhangs"`
+Both run on HuggingFace's free public infrastructure. No account or key needed.
 
-**Step 2: Check API key**
+**Step 1: Craft the generation prompt**
 
-Check if `MESHY_API_KEY` is set:
-```bash
-echo ${MESHY_API_KEY:-"NOT SET"}
-```
+Write a concise, descriptive prompt. Good prompts:
+- Describe overall shape and key features
+- Mention style: "realistic", "low-poly", "stylized", "cartoon"
+- Add surface hints: "smooth plastic", "rough stone", "wooden texture"
+- Include scale context: "15cm tall figurine", "tabletop miniature"
 
-If not set, remind the user:
-> ⚠️ `MESHY_API_KEY` is not set. Set it with:
-> ```bash
-> export MESHY_API_KEY=your_key_here
-> ```
-> Get a key at [meshy.ai/api](https://www.meshy.ai/api) (Pro tier required, ~$20/mo).
-> For testing without credits: `export MESHY_API_KEY=msy_dummy_api_key_for_test_mode_12345678`
->
-> **Free alternative**: Upload your reference image or description at [trellis3d.co](https://trellis3d.co), download the GLB, and place it in `designs/`.
+Example: `"A decorative oak tree, stylized low-poly, thick trunk, layered canopy, flat circular base, 3D printable"`
 
-**Step 3: Generate**
+**Step 2: Run mesh_generate.py**
+
+Text-to-3D (no image):
 ```bash
 python scripts/mesh_generate.py \
   --prompt "<crafted prompt>" \
-  [--image "<image_path>"] \
-  [--refine] \
   --output designs/<slug_name>.glb
 ```
 
-Use `--refine` for higher quality texture (takes ~2x longer and costs more credits).
-Use `--image` when the user provided a reference image.
+Image-to-3D (highest quality with TRELLIS):
+```bash
+python scripts/mesh_generate.py \
+  --prompt "<description>" \
+  --image "<image_path>" \
+  --output designs/<slug_name>.glb
+```
 
-**Step 4: Wrap-up**
+Force a specific backend:
+```bash
+python scripts/mesh_generate.py --prompt "..." --backend hunyuan   # text-to-3D
+python scripts/mesh_generate.py --prompt "..." --image ref.png --backend trellis
+```
+
+Also generate STL at the same time:
+```bash
+python scripts/mesh_generate.py --prompt "..." --output designs/<slug_name>.glb --also-stl
+```
+
+**Step 3: Wrap-up**
 ```
 ✅ Mesh generated!
 📦 GLB: designs/<slug_name>.glb
+📦 STL: designs/<slug_name>.stl  (if --also-stl was used)
 💡 Open in Blender, PrusaSlicer, or Bambu Studio to inspect and slice.
-💡 For STL conversion: drag into PrusaSlicer or run:
-   python -c "import trimesh; trimesh.load('designs/<slug_name>.glb').export('designs/<slug_name>.stl')"
+```
+
+If `--also-stl` was not used and the user needs STL:
+```bash
+python -c "import trimesh; trimesh.load('designs/<slug_name>.glb').export('designs/<slug_name>.stl')"
 ```
 
 ---
@@ -345,4 +356,4 @@ Use `--image` when the user provided a reference image.
 - If the user provides contradictory requirements, flag the conflict and ask for clarification
 - If a script fails, read the error output, diagnose the issue, fix it, and re-run
 - Store all outputs in `designs/` with a descriptive slug name (e.g. `iphone_15_case`, `oak_tree_lowpoly`)
-- Never hardcode secret values; always read `MESHY_API_KEY` from the environment
+- Mesh generation uses free public HuggingFace Spaces — no API keys or accounts needed
