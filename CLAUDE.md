@@ -1,35 +1,51 @@
-# ClaudeCAD
+# ClaudeCAD — AI-Assisted 3D Model Design Agent
 
-AI-assisted CAD design for 3D printing, powered by Claude and CadQuery.
+An AI agent that guides you from idea → 2D draft → 3D model, choosing between parametric CAD (CadQuery) and AI mesh generation (Meshy AI) based on your design type.
 
-## Skills
+## Quick Start
 
-- **cad-design** (`.claude/skills/cad-design.md`): Conversational 3D part design with FDM print optimization. Generates CadQuery Python scripts, renders multi-view SVG previews, and exports STL files.
-
-## Project Structure
-
-```
-.claude/skills/cad-design.md  — Claude Code skill for CAD design
-scripts/cad_render.py          — Render + export helper (SVG previews, STL/STEP export)
-designs/                       — CadQuery scripts and generated outputs
+```bash
+pip install -r requirements.txt
+/cad-agent design a phone stand for iPhone 15
 ```
 
-## Workflow
+## Setup
 
-1. Describe a part to Claude
-2. Claude generates a CadQuery script in `designs/`
-3. Run `python3 scripts/cad_render.py designs/<name>.py` to render previews and export STL
-4. Iterate on the design with natural language feedback
-
-## Dependencies
-
+### Requirements
 - Python 3.10+
-- `cadquery` (`pip install cadquery`)
+- `pip install -r requirements.txt`
+
+### Environment Variables
+
+No API keys or accounts are required. Mesh generation uses free public HuggingFace Spaces.
+
+## How It Works
+
+Invoke via Claude Code:
+```
+/cad-agent <your request>
+```
+
+The agent runs through 5 phases:
+
+1. **Input parsing** — accepts text, image paths, or 3D file paths (STL, 3MF, STEP, SLDPRT, OBJ, GLB)
+2. **Requirements gathering** — identifies the object category and asks targeted questions
+3. **2D draft** — generates a dimensioned orthographic sketch PNG for your review
+4. **Approach decision** — chooses CadQuery (parametric) or Meshy AI (mesh) based on shape type
+5. **Model generation** — produces STL/STEP (CAD) or GLB/STL (mesh) in `designs/`
+
+## Scripts
+
+| Script | Purpose | Usage |
+|---|---|---|
+| `scripts/analyze_model.py` | Parse 3D files → JSON stats | `python scripts/analyze_model.py model.stl` |
+| `scripts/generate_draft.py` | JSON spec → dimensioned PNG | `python scripts/generate_draft.py '<json>' --output out.png` |
+| `scripts/cad_render.py` | CadQuery script → STL + preview | `python scripts/cad_render.py design.py --format both` |
+| `scripts/mesh_generate.py` | Free HF Spaces (TRELLIS / Hunyuan3D-2) → GLB | `python scripts/mesh_generate.py --prompt "..." --output out.glb` |
 
 ## Design Conventions
 
-- All dimensions in millimeters
-- CadQuery scripts must define a `result` variable
-- FDM print rules are applied automatically (see skill for details)
-- Bottom edges use chamfers (not fillets) for build plate adhesion
-- Default clearances: +0.3mm per side for clearance fits
+- All dimensions in **millimeters**
+- CadQuery scripts store the final shape in a variable named `result`
+- Output files land in `designs/<name>.*`
+- FDM print rules applied automatically: wall thickness ≥ 0.8mm, overhangs ≤ 45°, fillets on bottom edges

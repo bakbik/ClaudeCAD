@@ -20,17 +20,20 @@ pip install cadquery
 # Claude will generate a script in designs/ and render previews
 
 # Manual render
-python3 scripts/cad_render.py designs/example_phone_stand.py
+python3 scripts/cad_render.py designs/<your-design>.py
 ```
 
 ## Project Structure
 
 ```
-.claude/skills/cad-design.md  — Claude Code skill for CAD design
-scripts/cad_render.py          — Render + export helper
-designs/                       — CadQuery scripts and outputs (.stl, .svg)
+ClaudeCAD/
+├── .claude/skills/cad-agent/SKILL.md   # Claude Code skill
+├── scripts/
+│   ├── analyze_model.py
+│   ├── generate_draft.py
+│   ├── cad_render.py
+│   └── mesh_generate.py
+├── designs/                             # Generated outputs
+├── requirements.txt
+└── CLAUDE.md
 ```
-
-## Research
-
-See `.claude/plans/` for research notes on 3D printing MCPs and Claude skills ecosystem.
