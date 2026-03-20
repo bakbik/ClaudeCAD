@@ -357,3 +357,47 @@ python -c "import trimesh; trimesh.load('designs/<slug_name>.glb').export('desig
 - If a script fails, read the error output, diagnose the issue, fix it, and re-run
 - Store all outputs in `designs/` with a descriptive slug name (e.g. `iphone_15_case`, `oak_tree_lowpoly`)
 - Mesh generation uses free public HuggingFace Spaces — no API keys or accounts needed
+
+---
+
+## Multi-Part Design Guidelines
+
+These rules are **mandatory**, not optional.
+
+### 1. Build Volume Verification
+
+Before exporting, compute every part's bounding box and confirm it fits the target printer's build volume. If any part exceeds the limit, split the model proactively — never present an oversized part to the user. Choose split planes at natural joint locations or sub-assembly boundaries. Always report each part's dimensions and a pass/fail against the build volume in the output.
+
+### 2. Toolchain Compatibility
+
+Before writing a script, confirm the available Python environment supports the chosen library. If the primary library fails to import, fall back to the next best alternative rather than repeatedly retrying the same failing approach. For geometry work on constrained environments: trimesh + Shapely covers the majority of prismatic FDM parts without requiring 3D boolean backends.
+
+### 3. Non-Zero Connection Width — Mandatory Connectivity Check
+
+**Every joint between sub-parts must have non-zero cross-sectional area throughout the connection zone.**
+
+A connection where two pieces share only a single coincident face — with no material thickness on either side of that plane — is a zero-width connection and will be structurally invalid (a knife-edge seam in the mesh). This is **rejected**.
+
+Test: slice the assembled part at the attachment plane. The cross-section must show contiguous material from one sub-part into the other, with measurable width in at least one direction. Report each connection's width explicitly before presenting to the user. Any zero or near-zero width is a blocker — redesign before proceeding.
+
+### 4. Building Sockets into Curved Bodies (2D Polygon Subtraction)
+
+When a socket, slot, or channel must be cut into a curved or extruded body, build it directly into the 2D cross-section polygon using boolean difference before extruding. This guarantees the socket walls are the same contiguous material as the body, eliminating zero-width junctions that arise when separate clip pieces are attached after the fact.
+
+General approach:
+1. Construct the body's 2D cross-section as a Shapely polygon
+2. Subtract the socket cavity shapes from the polygon using `.difference()`
+3. Extrude the resulting polygon into 3D
+
+Enforce that remaining wall thicknesses (between the cavity and the body boundary) are greater than zero using assertions at the top of the script.
+
+### 5. Flush Alignment at Multi-Part Joints
+
+When two parts connect and their cross-sections differ in size at the joint face, the visible outer and inner surfaces will be misaligned, creating a step. To eliminate this, add **collar wings** to the narrower part so its surfaces extend to match the wider part's profile at the joint.
+
+Rules for collar wings:
+- Place them at the joint face of the narrower part, extending outward to align with the wider part's outer boundary
+- Height should equal the socket/tenon engagement depth so they sit flush with the assembly plane and don't protrude visually
+- Each wing must share a full face with the main body — not just an edge or point
+- Confirm the wings do not overlap with the mating part's socket walls in the assembled position (maintain appropriate clearance)
+- The result: when assembled, both parts' outer faces appear as one continuous surface with no visible step
