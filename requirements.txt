@@ -1,0 +1,7 @@
+trimesh[easy]
+numpy
+matplotlib
+cadquery
+requests
+cairosvg
+Pillow
