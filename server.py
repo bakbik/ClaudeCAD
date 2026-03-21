@@ -141,7 +141,6 @@ EXAMPLE_SPEC = json.dumps(
 def build_ui() -> gr.Blocks:
     with gr.Blocks(
         title="ClaudeCAD",
-        theme=gr.themes.Soft(primary_hue="blue", neutral_hue="slate"),
     ) as demo:
         gr.Markdown(
             """
@@ -260,6 +259,7 @@ def main():
         server_port=args.port,
         share=args.share,
         inbrowser=True,
+        theme=gr.themes.Soft(primary_hue="blue", neutral_hue="slate"),
     )
 
 
