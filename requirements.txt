@@ -6,3 +6,4 @@ requests
 cairosvg
 Pillow
 gradio_client
+gradio
