@@ -1,28 +1,17 @@
+# Flutter
+app/**/build/
+app/**/.dart_tool/
+app/**/.flutter-plugins
+app/**/.flutter-plugins-dependencies
+app/**/pubspec.lock
+
+# Arduino
+firmware/**/*.hex
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-
-# Generated 3D model outputs
-designs/**/*.stl
-designs/**/*.step
-designs/**/*.glb
-designs/**/*.gltf
-designs/**/*.obj
-designs/**/*.fbx
-
-# Generated previews
-designs/**/*.png
-designs/**/*.svg
-
-# Environment
-.env
-*.env
 
 # OS
 .DS_Store
